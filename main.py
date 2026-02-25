@@ -1,11 +1,20 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware # IMPORTANTE
 from supabase import create_client, Client
 import os
 from twilio.rest import Client as TwilioClient
 
 app = FastAPI()
 
-# Configuración de Supabase (las pondremos en variables de entorno)
+# Configuración de CORS para permitir que Vercel se conecte
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # En producción podés poner la URL de Vercel para más seguridad
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
@@ -16,7 +25,6 @@ def home():
 
 @app.get("/nino/{nino_id}")
 def obtener_nino(nino_id: str):
-    # Buscamos en la tabla que creamos en Supabase
     response = supabase.table("perfiles_ninos").select("*").eq("id", nino_id).execute()
     
     if not response.data:
@@ -26,21 +34,18 @@ def obtener_nino(nino_id: str):
 
 @app.post("/notificar/{nino_id}")
 def enviar_alerta(nino_id: str):
-    # 1. Traer datos del niño y teléfono del padre
     nino = obtener_nino(nino_id)
     telefono = nino['telefono_emergencia']
     nombre = nino['nombre']
     
-    # 2. Configuración de Twilio
     account_sid = os.environ.get("TWILIO_SID")
     auth_token = os.environ.get("TWILIO_TOKEN")
     from_number = os.environ.get("TWILIO_PHONE")
     
     client = TwilioClient(account_sid, auth_token)
     
-    # 3. Enviar SMS
     message = client.messages.create(
-        body=f"CODEXIA ALERTA: Tu hijo {nombre} ha sido escaneado. Por favor revisa la web.",
+        body=f"CODEXIA ALERTA: Tu hijo {nombre} ha sido encontrado. Revisa la app para más info.",
         from_=from_number,
         to=telefono
     )
