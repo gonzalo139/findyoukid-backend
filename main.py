@@ -1,27 +1,33 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware # IMPORTANTE
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from supabase import create_client, Client
 import os
 from twilio.rest import Client as TwilioClient
 
 app = FastAPI()
 
-# Configuración de CORS para permitir que Vercel se conecte
+# Configuración de CORS para que Vercel pueda comunicarse con Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En producción podés poner la URL de Vercel para más seguridad
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Modelo para recibir la URL de Google Maps desde el Frontend
+class AlertaRequest(BaseModel):
+    maps_url: str = "Ubicación no proporcionada"
+
+# Configuración de Supabase
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
 
 @app.get("/")
 def home():
-    return {"status": "Codexia API Online"}
+    return {"status": "Codexia API Online - GeoEnabled"}
 
 @app.get("/nino/{nino_id}")
 def obtener_nino(nino_id: str):
@@ -33,21 +39,31 @@ def obtener_nino(nino_id: str):
     return response.data[0]
 
 @app.post("/notificar/{nino_id}")
-def enviar_alerta(nino_id: str):
+def enviar_alerta(nino_id: str, request: AlertaRequest):
+    # 1. Obtener datos del niño de Supabase
     nino = obtener_nino(nino_id)
     telefono = nino['telefono_emergencia']
     nombre = nino['nombre']
     
+    # 2. Credenciales de Twilio desde Variables de Entorno
     account_sid = os.environ.get("TWILIO_SID")
     auth_token = os.environ.get("TWILIO_TOKEN")
     from_number = os.environ.get("TWILIO_PHONE")
     
     client = TwilioClient(account_sid, auth_token)
     
-    message = client.messages.create(
-        body=f"CODEXIA ALERTA: Tu hijo {nombre} ha sido encontrado. Revisa la app para más info.",
-        from_=from_number,
-        to=telefono
+    # 3. Construcción del mensaje con la geolocalización
+    mensaje_cuerpo = (
+        f"CODEXIA ALERTA: {nombre} ha sido encontrado.\n"
+        f"Ver ubicación en el mapa: {request.maps_url}"
     )
     
-    return {"status": "SMS enviado", "sid": message.sid}
+    try:
+        message = client.messages.create(
+            body=mensaje_cuerpo,
+            from_=from_number,
+            to=telefono
+        )
+        return {"status": "SMS enviado con éxito", "sid": message.sid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
