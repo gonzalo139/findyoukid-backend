@@ -15,7 +15,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Agrega este modelo de datos arriba junto a AlertaRequest
+class ActualizarNino(BaseModel):
+    telefono_emergencia: str = None
+    condicion_medica: str = None
 
+# Nueva ruta para actualizar datos desde el Panel Admin
+@app.patch("/nino/{nino_id}")
+def actualizar_nino(nino_id: str, datos: ActualizarNino):
+    # Creamos un diccionario solo con los campos que no sean None
+    update_data = {k: v for k, v in datos.dict().items() if v is not None}
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No hay datos para actualizar")
+
+    response = supabase.table("perfiles_ninos").update(update_data).eq("id", nino_id).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Error al actualizar o niño no encontrado")
+        
+    return {"status": "success", "data": response.data[0]}
 # Modelo para recibir la URL de Google Maps desde el Frontend
 class AlertaRequest(BaseModel):
     maps_url: str = "Ubicación no proporcionada"
